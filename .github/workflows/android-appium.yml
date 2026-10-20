@@ -1,0 +1,63 @@
+name: Android Appium
+
+# GitHub uruchamia ten plik po pushu do repozytorium.
+# Nie startujesz go z laptopa ani z IntelliJ.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  settings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Jedno zadanie = jeden emulator = jedna sesja Appium. Ta sama zasada co lokalnie.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Appium 3 and UiAutomator2
+        run: |
+          npm install -g appium@3
+          appium driver install uiautomator2
+          appium --version
+
+      - name: Settings tests on one API 36 emulator
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          # Akcja sama instaluje cmdline-tools i obraz system-images;android-36;google_apis;x86_64.
+          script: |
+            # Obraz google_apis nie ma Chrome. Odpalamy tylko Ustawienia, jedna sesja.
+            export PATH="$PATH:$(npm prefix -g)/bin"
+            appium --address 127.0.0.1 --port 4723 > appium.log 2>&1 &
+            adb wait-for-device
+            adb shell getprop sys.boot_completed
+            ready=0
+            for _ in $(seq 1 30); do
+              if curl -sf http://127.0.0.1:4723/status; then
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            test "$ready" = 1
+            chmod +x ./gradlew
+            ./gradlew test --tests tests.SettingsTest --no-daemon
