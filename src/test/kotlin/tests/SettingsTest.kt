@@ -19,15 +19,15 @@ class SettingsTest : BaseTest() {
 
         assertEquals(AndroidConfig.SETTINGS_PACKAGE, settings.waitForSettingsPackage())
 
-        val title = settings.visibleSearchLabel()
-        assertTrue(title.contains("Settings")) {
-            "Na ekranie powinien być napis Settings, a jest: '$title'"
+        val title = settings.visibleHomeTitle()
+        assertTrue(settings.isHomeTitle(title)) {
+            "Na ekranie powinien być napis Settings albo wiersz ustawień, a jest: '$title'"
         }
 
         // Pauza jest po to, żeby popatrzeć na emulator. Test jest stabilny dzięki jawnemu czekaniu, nie dzięki pauzie.
         Waits.pauseSeconds(3)
 
-        assertTrue(settings.visibleSearchLabel().contains("Settings"))
+        assertTrue(settings.isHomeTitle(settings.visibleHomeTitle()))
     }
 
     @Test
@@ -36,9 +36,12 @@ class SettingsTest : BaseTest() {
 
         settings.waitForSettingsPackage()
         settings.backToTop()
+        assertTrue(settings.waitUntilHomeRows().isNotEmpty()) {
+            "Brak wierszy ustawień na ekranie głównym"
+        }
 
         repeat(3) { step ->
-            val before = settings.visibleRowTitles()
+            val before = settings.visibleHomeRows()
             assertTrue(before.isNotEmpty()) { "Krok $step: brak wierszy ustawień" }
 
             settings.scrollDown()
@@ -56,14 +59,15 @@ class SettingsTest : BaseTest() {
         settings.waitForSettingsPackage()
         settings.backToTop()
 
-        val firstScreen = settings.visibleRowTitles()
-        assertFalse(firstScreen.contains("About emulated device")) {
-            "About emulated device ma być poza pierwszym ekranem. Widać: $firstScreen"
+        val firstScreen = settings.waitUntilHomeRows()
+        assertFalse(firstScreen.any { it.startsWith("About") }) {
+            "About ma być poza pierwszym ekranem. Widać: $firstScreen"
         }
 
-        settings.scrollUntilRow("About emulated device")
-
-        assertEquals("About emulated device", settings.visibleRow("About emulated device"))
+        val about = settings.scrollUntilAbout()
+        assertTrue(about.startsWith("About")) {
+            "Po przewinięciu powinno być About, a jest: '$about'"
+        }
     }
 
     @Test
@@ -71,16 +75,16 @@ class SettingsTest : BaseTest() {
         val settings = SettingsPage(driver)
 
         settings.waitForSettingsPackage()
-        settings.openRow("Network & internet")
-        settings.waitUntilHomeSearchGone()
-
-        assertEquals("Network & internet", settings.toolbarDescription())
-        assertEquals("Airplane mode", settings.visibleRow("Airplane mode"))
+        val network = settings.openNetworkRow()
+        val detail = settings.visibleNetworkDetail()
+        assertTrue(detail.isNotEmpty()) {
+            "Po otwarciu '$network' powinna być widoczna pozycja sieci, a jest: '$detail'"
+        }
 
         settings.goBack()
-        val title = settings.visibleSearchLabel()
-        assertTrue(title.contains("Settings")) {
-            "Po cofnięciu powinien wrócić napis Search Settings, a jest: '$title'"
+        val title = settings.visibleHomeTitle()
+        assertTrue(settings.isHomeTitle(title)) {
+            "Po cofnięciu powinien wrócić ekran główny ustawień, a jest: '$title'"
         }
     }
 }

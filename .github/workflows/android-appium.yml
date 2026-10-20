@@ -73,4 +73,27 @@ jobs:
             adb wait-for-device; boot=0; for i in $(seq 1 360); do prop=$(adb shell getprop sys.boot_completed 2>/dev/null || true); prop=$(printf '%s' "$prop" | tr -d '\r'); if [ "$prop" = "1" ]; then boot=1; break; fi; sleep 2; done; if [ "$boot" != "1" ]; then echo "Emulator stayed offline or did not set boot_completed=1 within 12 minutes"; exit 1; fi
             export PATH="$PATH:$(npm prefix -g)/bin"; nohup appium --address 127.0.0.1 --port 4723 > appium.log 2>&1 & echo $! > appium.pid; sleep 1
             ready=0; for i in $(seq 1 30); do if curl -sf http://127.0.0.1:4723/status; then ready=1; break; fi; sleep 2; done; if [ "$ready" != "1" ]; then echo "Appium did not answer /status"; cat appium.log; exit 1; fi
+            echo "Mark the fresh image provisioned so Settings home does not finish() on API 36"
+            adb shell settings put global device_provisioned 1
+            adb shell settings put secure user_setup_complete 1
+            adb shell am force-stop com.google.android.setupwizard || true
+            adb shell am force-stop com.android.provision || true
             chmod +x ./gradlew && ./gradlew test --tests tests.SettingsTest --no-daemon
+      # Zrzuty są w build/failures na runnerze. Bez tego kroku job je kasuje.
+      - name: Print failure UI dump
+        if: failure()
+        run: |
+          if [ -d build/failures ]; then
+            find build/failures -name '*.txt' -print -exec cat {} \;
+          else
+            echo "build/failures is missing"
+          fi
+      - name: Upload failure screenshots and test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: settings-test-evidence
+          if-no-files-found: ignore
+          path: |
+            build/failures
+            build/reports/tests

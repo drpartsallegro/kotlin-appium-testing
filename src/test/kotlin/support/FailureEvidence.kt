@@ -52,6 +52,7 @@ class FailureEvidence : AfterTestExecutionCallback {
         val trace = StringWriter()
         failure.printStackTrace(PrintWriter(trace))
         val firstLines = trace.toString().lineSequence().take(15).joinToString("\n").trimEnd()
+        val uiDump = uiDump(driver)
 
         File(dir, "$baseName.txt").writeText(
             """
@@ -61,11 +62,44 @@ class FailureEvidence : AfterTestExecutionCallback {
             $screenshotNote
 
             $firstLines
+
+            $uiDump
             """.trimIndent() + "\n"
         )
     }
 
+    private fun uiDump(driver: AndroidDriver?): String {
+        if (driver == null) {
+            return "Źródło UI: sesja nie powstała."
+        }
+        val pkg = runCatching {
+            driver.executeScript("mobile: getCurrentPackage")?.toString()
+        }.getOrNull()
+        val activity = runCatching { driver.currentActivity() }.getOrNull()
+        val source = try {
+            driver.pageSource.orEmpty()
+        } catch (error: Exception) {
+            return """
+                Pakiet: $pkg
+                Aktywność: $activity
+                Źródło UI nie powiodło się: ${error.javaClass.simpleName}: ${error.message}
+            """.trimIndent()
+        }
+        val body = if (source.length > MAX_UI_DUMP_CHARS) {
+            source.take(MAX_UI_DUMP_CHARS) + "\n… (obcięte, ${source.length} znaków)"
+        } else {
+            source
+        }
+        return """
+            Pakiet: $pkg
+            Aktywność: $activity
+            Źródło UI:
+            $body
+        """.trimIndent()
+    }
+
     private companion object {
         val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
+        const val MAX_UI_DUMP_CHARS = 5000
     }
 }
