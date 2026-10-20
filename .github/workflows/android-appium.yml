@@ -36,28 +36,41 @@ jobs:
           appium driver install uiautomator2
           appium --version
 
+      # Runner ma /dev/kvm, ale użytkownik runner nie jest w grupie kvm (0660).
+      # Bez zapisu akcja dopisuje -accel off i API 36 idzie w TCG (bez AVX).
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          fi
+          ls -l /dev/kvm || true
+          if [ ! -w /dev/kvm ]; then
+            echo "::warning::/dev/kvm is not writable. The emulator will fall back to software emulation."
+          fi
+
       - name: Settings tests on one API 36 emulator
         uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 36
           target: google_apis
           arch: x86_64
+          profile: pixel_7
+          ram-size: 2048M
           disable-animations: true
-          # Akcja sama instaluje cmdline-tools i obraz system-images;android-36;google_apis;x86_64.
+          disable-linux-hw-accel: auto
+          # Akcja sama łapie "device offline" (adb exit 1) aż do tego limitu.
+          emulator-boot-timeout: 900
+          # -accel auto używa KVM, gdy /dev/kvm jest zapisywalny. GPU zostaje programowe:
+          # runner nie ma karty, a -gpu host na ubuntu-latest wywala start.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -accel auto
+          # Każda linia script to osobny sh -c. Pętla musi być w jednej linii.
+          # Skrypt startuje dopiero po boot-wait akcji; tu jeszcze raz czekamy,
+          # ale kod 1 z adb (offline) nie kończy powłoki.
           script: |
-            # Obraz google_apis nie ma Chrome. Odpalamy tylko Ustawienia, jedna sesja.
-            export PATH="$PATH:$(npm prefix -g)/bin"
-            appium --address 127.0.0.1 --port 4723 > appium.log 2>&1 &
-            adb wait-for-device
-            adb shell getprop sys.boot_completed
-            ready=0
-            for _ in $(seq 1 30); do
-              if curl -sf http://127.0.0.1:4723/status; then
-                ready=1
-                break
-              fi
-              sleep 2
-            done
-            test "$ready" = 1
-            chmod +x ./gradlew
-            ./gradlew test --tests tests.SettingsTest --no-daemon
+            adb wait-for-device; boot=0; for i in $(seq 1 360); do prop=$(adb shell getprop sys.boot_completed 2>/dev/null || true); prop=$(printf '%s' "$prop" | tr -d '\r'); if [ "$prop" = "1" ]; then boot=1; break; fi; sleep 2; done; if [ "$boot" != "1" ]; then echo "Emulator stayed offline or did not set boot_completed=1 within 12 minutes"; exit 1; fi
+            export PATH="$PATH:$(npm prefix -g)/bin"; nohup appium --address 127.0.0.1 --port 4723 > appium.log 2>&1 & echo $! > appium.pid; sleep 1
+            ready=0; for i in $(seq 1 30); do if curl -sf http://127.0.0.1:4723/status; then ready=1; break; fi; sleep 2; done; if [ "$ready" != "1" ]; then echo "Appium did not answer /status"; cat appium.log; exit 1; fi
+            chmod +x ./gradlew && ./gradlew test --tests tests.SettingsTest --no-daemon

@@ -73,9 +73,9 @@ W tym jednym zadaniu dzieje się po kolei:
 1. Runner `ubuntu-latest` pobiera kod.
 2. Instaluje Javę 17 i Node.
 3. Instaluje Appium 3 oraz sterownik UiAutomator2.
-4. Akcja emulatora dociąga Android SDK command line tools i jeden obraz API 36 `google_apis` x86_64, potem włącza jeden emulator.
-5. Appium startuje w tle na porcie 4723.
-6. `adb wait-for-device` czeka, aż emulator jest widoczny.
+4. Reguła udev (i `chmod` na istniejącym węźle) daje runnerowi zapis do `/dev/kvm`, żeby emulator użył akceleracji hosta zamiast TCG.
+5. Akcja emulatora dociąga Android SDK command line tools i jeden obraz API 36 `google_apis` x86_64, tworzy profil Pixel 7 z 2048 MB RAM i włącza jeden emulator. `adb` w czasie startu zgłasza `device offline` (kod wyjścia 1) — job czeka dalej, aż `sys.boot_completed` będzie `1` (do 15 minut w akcji, potem jeszcze do 12 minut w skrypcie).
+6. Dopiero po `boot_completed=1` Appium startuje w tle na porcie 4723.
 7. `./gradlew test --tests tests.SettingsTest` odpala tylko testy Ustawień. Job nie zakłada, że Chrome jest w obrazie.
 
 Jedno zadanie = jeden emulator = jedna sesja Appium. Ta sama zasada co przy lokalnym `emulator-5554`.
