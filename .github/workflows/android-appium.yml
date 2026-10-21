@@ -53,8 +53,9 @@ jobs:
             exit 1
           fi
 
-      # Obraz runnera ma własne system-images. Zostało ~7 GB, a domyślny userdata API 36 chce ~7372 MB.
-      # Akcja i tak dociąga jeden obraz google_apis x86_64 API 36. Kasujemy tylko to, czego ten job nie używa.
+      # Run 592f9e9 skasował system-images przez sudo i padł po ~10 min, przed 20-minutowym czekaniem na boot.
+      # SDK na runnerze jest roota. Po rm katalogu runner nie utworzy go ponownie i sdkmanager kończy krok.
+      # Zostają obraz API 36 (akcja dociąga go sama), bez NDK i bez nieużywanych platforms.
       - name: Free disk before the emulator
         run: |
           df -h /
@@ -62,13 +63,12 @@ jobs:
           echo "SDK root: $sdk"
           if [ -d "$sdk" ]; then
             sudo du -sh "$sdk"/* 2>/dev/null || true
+            sudo rm -rf "$sdk/system-images" "$sdk/platforms" "$sdk/ndk" "$sdk/ndk-bundle"
+            sudo mkdir -p "$sdk/system-images" "$sdk/platforms"
+            sudo chown -R "$USER:$USER" "$sdk"
           else
             echo "No preinstalled SDK at $sdk"
           fi
-          if [ -d "$sdk/system-images" ]; then
-            sudo rm -rf "$sdk/system-images"
-          fi
-          sudo rm -rf "$sdk/ndk" "$sdk/ndk-bundle" || true
           df -h /
 
       - name: Settings tests on one API 36 emulator
@@ -80,9 +80,10 @@ jobs:
           profile: pixel_7
           avd-name: test
           ram-size: 2048M
-          # v2.38.0 czyta disk-size i dopisuje disk.dataPartition.size na końcu config.ini.
-          # avdmanager wpisuje wcześniej domyślne ~6–7 GB. Skrypt poniżej zostawia jedną linię 2048M.
-          disk-size: 2048M
+          # v2.38.0 tylko DOPISUJE disk.dataPartition.size. avdmanager wstawia wcześniej ~7372M,
+          # a emulator bierze pierwszy wpis: przy 7162 MB wolnego był FATAL, zanim adb zobaczył urządzenie.
+          # Skrypt po Create AVD kasuje wszystkie te linie i zostawia jedną 1024M.
+          disk-size: 1024M
           disable-animations: true
           # false: akcja nie dopisuje -accel off. KVM włącza krok wyżej.
           disable-linux-hw-accel: false
@@ -92,7 +93,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -accel auto
           # Jedna linia = jedno sh -c. Po Create AVD, przed startem emulatora.
           pre-emulator-launch-script: |
-            cfg="${ANDROID_AVD_HOME}/test.avd/config.ini"; echo "disk.dataPartition.size before:"; grep -n '^disk.dataPartition.size=' "$cfg" || true; sed -i '/^disk.dataPartition.size=/d' "$cfg"; printf '%s\n' 'disk.dataPartition.size=2048M' >> "$cfg"; echo "disk.dataPartition.size after:"; grep -n '^disk.dataPartition.size=' "$cfg"; df -h /
+            cfg="${ANDROID_AVD_HOME}/test.avd/config.ini"; echo "AVD home: ${ANDROID_AVD_HOME}"; echo "disk.dataPartition.size before:"; grep -n '^disk.dataPartition.size=' "$cfg" || true; sed -i '/^disk.dataPartition.size=/d' "$cfg"; printf '%s\n' 'disk.dataPartition.size=1024M' >> "$cfg"; echo "disk.dataPartition.size after:"; grep -n '^disk.dataPartition.size=' "$cfg"; test "$(grep -c '^disk.dataPartition.size=1024M$' "$cfg")" = "1"; df -h /
           # Każda linia script to osobny sh -c. Pętla musi być w jednej linii.
           # Skrypt startuje dopiero po boot-wait akcji; tu jeszcze raz czekamy,
           # ale kod 1 z adb (offline) nie kończy powłoki.
