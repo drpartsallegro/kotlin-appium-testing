@@ -15,6 +15,10 @@ jobs:
     name: Settings ${{ matrix.device }} API ${{ matrix.api-level }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # Gradle widzi komórkę macierzy. Allure dopisuje ją do parametrów, więc scalony raport trzyma 16 wyników.
+    env:
+      DEVICE: ${{ matrix.device }}
+      API_LEVEL: ${{ matrix.api-level }}
     strategy:
       # Gdy jedno zadanie padnie, pozostałe idą dalej.
       fail-fast: false

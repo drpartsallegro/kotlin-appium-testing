@@ -86,6 +86,6 @@ Po każdym zadaniu, także gdy testy przejdą, w Actions jest para raportów HTM
 
 ## Raport na GitHub Pages
 
-Otwórz https://drpartsallegro.github.io/kotlin-appium-testing/ i wybierz uruchomienie z listy. Pojedyncze uruchomienie jest pod `https://drpartsallegro.github.io/kotlin-appium-testing/runs/<id>/` i pokazuje cztery kombinacje z macierzy. Strona uruchomienia zaczyna się od raportu zebranego ze wszystkich czterech zadań, a pod nim są linki do poszczególnych urządzeń. Lista trzyma ostatnie 30 uruchomień z gałęzi main. Artefakty danego uruchomienia nadal są w Actions.
+Otwórz https://drpartsallegro.github.io/kotlin-appium-testing/ i wybierz uruchomienie z listy. Pojedyncze uruchomienie jest pod `https://drpartsallegro.github.io/kotlin-appium-testing/runs/<id>/` i pokazuje cztery kombinacje z macierzy. Strona uruchomienia zaczyna się od raportu zebranego ze wszystkich czterech zadań, a pod nim są linki do poszczególnych urządzeń. Raport ogólny wymienia 16 wyników, bo każdy z 4 testów uruchamia się na 4 sesjach. Lista trzyma ostatnie 30 uruchomień z gałęzi main. Artefakty danego uruchomienia nadal są w Actions.
 
 Nie włączaj sugerowanego workflow „GitHub Pages Jekyll” ani „Static HTML”. Raport wystawia ten workflow. Adres zwraca 404, dopóki zadanie pages nie przejdzie choć raz.
