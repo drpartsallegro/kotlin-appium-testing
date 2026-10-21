@@ -18,6 +18,7 @@ if [[ ! "$RUN_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
 fi
 
 ALLURE_DIR=${ALLURE_DIR:-incoming/allure}
+ALLURE_ALL_DIR=${ALLURE_ALL_DIR:-incoming/allure-all}
 GRADLE_DIR=${GRADLE_DIR:-incoming/gradle}
 KEEP_RUNS=30
 
@@ -147,6 +148,10 @@ find_cell_report() {
   [ -d "$root" ] || return 1
   while IFS= read -r dir; do
     [ -n "$dir" ] || continue
+    # The merged report is not a matrix cell, even if the download pattern also matched it.
+    if [ "$(basename "$dir")" = "${prefix}-all" ]; then
+      continue
+    fi
     [ -f "$dir/matrix-cell.txt" ] || continue
     marker=$(head -n 1 "$dir/matrix-cell.txt" | tr -d '\r')
     if [ "$marker" = "${device} ${api}" ] && has_html "$dir"; then
@@ -281,7 +286,7 @@ mkdir -p "$SITE_DIR/runs"
 
 read_matrix_cells
 
-if ! has_html "$ALLURE_DIR" && ! has_html "$GRADLE_DIR"; then
+if ! has_html "$ALLURE_DIR" && ! has_html "$GRADLE_DIR" && ! has_html "$ALLURE_ALL_DIR"; then
   echo "Every matrix report is missing; skipping Pages deploy." >&2
   rm -rf "$SITE_DIR"
   set_output deploy false
@@ -295,6 +300,7 @@ mkdir -p "$run_dir"
 
 sections=""
 installed=0
+cells_published=0
 seen_slugs=" "
 for cell in "${CELLS[@]}"; do
   device=${cell%% *}
@@ -308,10 +314,12 @@ for cell in "${CELLS[@]}"; do
   heading=$(html_escape "${device}, API ${api}")
   allure_missing="Brak raportu Allure dla ${device}, API ${api}."
   gradle_missing="Brak raportu Gradle dla ${device}, API ${api}."
+  cell_published=0
   if src=$(find_cell_report "$ALLURE_DIR" "appium-report" "$device" "$api"); then
     if install_report "$src" "$run_dir/$slug/allure"; then
       rm -f "$run_dir/$slug/allure/matrix-cell.txt"
       installed=$((installed + 1))
+      cell_published=1
       echo "included Allure report for ${slug}" >&2
     else
       echo "Allure report is missing for ${slug}" >&2
@@ -323,12 +331,16 @@ for cell in "${CELLS[@]}"; do
     if install_report "$src" "$run_dir/$slug/gradle"; then
       rm -f "$run_dir/$slug/gradle/matrix-cell.txt"
       installed=$((installed + 1))
+      cell_published=1
       echo "included Gradle report for ${slug}" >&2
     else
       echo "Gradle report is missing for ${slug}" >&2
     fi
   else
     echo "Gradle report is missing for ${slug}" >&2
+  fi
+  if [ "$cell_published" -eq 1 ]; then
+    cells_published=$((cells_published + 1))
   fi
   allure_li=$(report_link "${slug}/allure" "Raport Allure, ${device}, API ${api}" "$allure_missing")
   gradle_li=$(report_link "${slug}/gradle" "Raport Gradle, ${device}, API ${api}" "$gradle_missing")
@@ -338,6 +350,25 @@ for cell in "${CELLS[@]}"; do
   sections="${sections}    ${gradle_li}"$'\n'
   sections="${sections}  </ul>"$'\n'
 done
+
+overall_missing="Brak raportu ogólnego."
+if has_html "$ALLURE_ALL_DIR"; then
+  if install_report "$ALLURE_ALL_DIR" "$run_dir/allure"; then
+    rm -f "$run_dir/allure/matrix-cell.txt"
+    installed=$((installed + 1))
+    echo "included overall Allure report" >&2
+  else
+    echo "Overall Allure report is missing" >&2
+  fi
+else
+  echo "Overall Allure report is missing" >&2
+fi
+overall_li=$(report_link "allure" "Raport ogólny" "$overall_missing")
+overall_section="  <h2>Raport ogólny</h2>"$'\n'
+overall_section="${overall_section}  <ul>"$'\n'
+overall_section="${overall_section}    ${overall_li}"$'\n'
+overall_section="${overall_section}  </ul>"$'\n'
+count_line="  <p>Opublikowano ${cells_published} z ${#CELLS[@]} kombinacji.</p>"
 
 if [ "$installed" -eq 0 ]; then
   echo "No matrix report could be installed; skipping Pages deploy." >&2
@@ -385,6 +416,8 @@ cat > "$run_dir/index.html" <<EOF
     <li>Commit: <code>${RUN_SHA}</code></li>
     ${actions_li}
   </ul>
+${count_line}
+${overall_section}
 ${sections}
 </body>
 </html>

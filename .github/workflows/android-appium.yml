@@ -164,6 +164,14 @@ jobs:
           name: appium-report-${{ matrix.device }}-api${{ matrix.api-level }}
           if-no-files-found: warn
           path: build/appium-report
+      # Surowe wyniki z build/allure-results. Job summary skleja je w jeden raport. Bez page source.
+      - name: Upload raw Allure results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: allure-results-${{ matrix.device }}-api${{ matrix.api-level }}
+          if-no-files-found: warn
+          path: build/allure-results
       - name: Upload Gradle HTML report
         if: always()
         uses: actions/upload-artifact@v7
@@ -172,10 +180,92 @@ jobs:
           if-no-files-found: warn
           path: build/reports/tests/test
 
+  # Jeden raport Allure ze wszystkich komórek. Także na pull request, jako artefakt.
+  # Brak surowych wyników nie kończy workflowu. Anulowane testy pomijają ten job.
+  summary:
+    name: Overall Allure report
+    needs: settings
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Download raw Allure results
+        id: results
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          pattern: allure-results-*
+          path: incoming/allure-results
+
+      - name: Merge Allure results into one report
+        id: merge
+        run: |
+          merged="build/allure-results-all"
+          report="build/appium-report-all"
+          root="incoming/allure-results"
+          rm -rf "$merged" "$report"
+          mkdir -p "$merged"
+          cells=0
+          if [ -d "$root" ]; then
+            sources=()
+            while IFS= read -r dir; do
+              [ -n "$dir" ] || continue
+              sources+=("$dir")
+            done < <(find "$root" -mindepth 1 -maxdepth 1 -type d | sort)
+            if [ "${#sources[@]}" -eq 0 ]; then
+              sources+=("$root")
+            fi
+            for src in "${sources[@]}"; do
+              found=$(find "$src" -type f -name '*-result.json' -print -quit)
+              if [ -z "$found" ]; then
+                echo "no Allure results in ${src}"
+                continue
+              fi
+              while IFS= read -r -d '' file; do
+                cp -f "$file" "$merged/$(basename "$file")"
+              done < <(find "$src" -type f -print0)
+              cells=$((cells + 1))
+              echo "merged Allure results from ${src}"
+            done
+          fi
+          if [ "$cells" -eq 0 ]; then
+            echo "No Allure results from any matrix cell; skipping the overall report."
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          npx --yes allure-commandline@2.46.1 generate "$merged" --clean --single-file -o "$report"
+          if [ ! -f "$report/index.html" ]; then
+            echo "Overall Allure report has no index.html" >&2
+            exit 1
+          fi
+          echo "generated=true" >> "$GITHUB_OUTPUT"
+          echo "Overall report includes ${cells} matrix cell(s)."
+
+      - name: Upload overall Allure report
+        if: steps.merge.outputs.generated == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: appium-report-all
+          if-no-files-found: error
+          path: build/appium-report-all
+
   # Raport tego uruchomienia. Nie dodawaj tu workflow Jekyll ani Static HTML.
   # deploy-pages podmienia całą stronę, więc starsze uruchomienia trzymamy na gałęzi report-history.
   pages:
-    needs: settings
+    needs:
+      - settings
+      - summary
     if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -196,12 +286,13 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
+      # appium-report-all to osobny artefakt. Wzorzec z -api nie wciąga go między komórki.
       - name: Download Allure reports
         id: allure
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
-          pattern: appium-report-*
+          pattern: "appium-report-*-api*"
           path: incoming/allure
 
       - name: Download Gradle reports
@@ -212,7 +303,15 @@ jobs:
           pattern: gradle-test-report-*
           path: incoming/gradle
 
-      # Te same cztery pary co strategy.matrix. Brak artefaktu nie blokuje pozostałych.
+      - name: Download overall Allure report
+        id: allure_all
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: appium-report-all
+          path: incoming/allure-all
+
+      # Raport ogólny i te same cztery pary co strategy.matrix. Brak artefaktu nie blokuje pozostałych.
       - name: Assemble Pages site
         id: site
         env:
@@ -221,6 +320,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
           ALLURE_DIR: incoming/allure
+          ALLURE_ALL_DIR: incoming/allure-all
           GRADLE_DIR: incoming/gradle
           MATRIX_CELLS: |
             pixel_7 34
