@@ -123,6 +123,9 @@ jobs:
             adb shell settings put global window_animation_scale 0
             adb shell settings put global transition_animation_scale 0
             adb shell settings put global animator_duration_scale 0
+            # newSession sam uruchamia Ustawienia. Wait w SettingsPage jest dopiero po sesji,
+            # więc pierwszy start pada, gdy pm nie oddaje ścieżki albo wisi "isn't responding".
+            bash .github/scripts/ready-settings-device.sh
             chmod +x ./gradlew && ./gradlew test --tests tests.SettingsTest --no-daemon
       # Zrzuty są w build/failures na runnerze. Bez tego kroku job je kasuje.
       - name: Print failure notes

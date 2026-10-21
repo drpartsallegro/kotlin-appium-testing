@@ -3,7 +3,6 @@ package driver
 import config.AndroidConfig
 import io.appium.java_client.android.AndroidDriver
 import io.appium.java_client.android.options.UiAutomator2Options
-import org.openqa.selenium.WebDriverException
 import java.time.Duration
 
 object DriverFactory {
@@ -33,31 +32,18 @@ object DriverFactory {
         options.setAdbExecTimeout(Duration.ofSeconds(60))
         options.setIgnoreHiddenApiPolicyError(true)
 
-        // Dwie dodatkowe próby tylko dla sesji. Ciało testu i asercje nie są powtarzane.
-        val attempts = 3
-        var lastError: WebDriverException? = null
-        for (attempt in 1..attempts) {
-            var created: AndroidDriver? = null
-            try {
-                created = AndroidDriver(AndroidConfig.serverUrl(), options)
-                // Bez implicit wait. Czekamy tylko tam, gdzie widać to w kodzie (Waits).
-                created.manage().timeouts().implicitlyWait(Duration.ZERO)
-                driver = created
-                return created
-            } catch (error: WebDriverException) {
-                lastError = error
-                if (created != null) {
-                    driver = created
-                }
-                if (attempt == attempts) {
-                    throw error
-                }
-                println("Session start attempt $attempt failed (${error.javaClass.simpleName}). Retrying in 3 seconds.")
-                quit()
-                Thread.sleep(3_000)
-            }
+        var created: AndroidDriver? = null
+        try {
+            created = AndroidDriver(AndroidConfig.serverUrl(), options)
+            // Bez implicit wait. Czekamy tylko tam, gdzie widać to w kodzie (Waits).
+            created.manage().timeouts().implicitlyWait(Duration.ZERO)
+            driver = created
+            return created
+        } catch (error: Exception) {
+            runCatching { created?.quit() }
+            driver = null
+            throw error
         }
-        throw checkNotNull(lastError)
     }
 
     fun quit() {
