@@ -74,7 +74,7 @@ W tym jednym zadaniu dzieje się po kolei:
 2. Instaluje Javę 17 i Node.
 3. Instaluje Appium 3 oraz sterownik UiAutomator2.
 4. Reguła udev (i `chmod` na istniejącym węźle) daje runnerowi zapis do `/dev/kvm`, żeby emulator użył akceleracji hosta zamiast TCG.
-5. Akcja emulatora dociąga Android SDK command line tools i jeden obraz API 36 `google_apis` x86_64, tworzy profil Pixel 7 z 2048 MB RAM i włącza jeden emulator. `adb` w czasie startu zgłasza `device offline` (kod wyjścia 1) — job czeka dalej, aż `sys.boot_completed` będzie `1` (do 15 minut w akcji, potem jeszcze do 12 minut w skrypcie).
+5. Akcja emulatora dociąga Android SDK command line tools i jeden obraz API 36 `google_apis` x86_64, tworzy profil Pixel 7 z 2048 MB RAM i partycją userdata 2048 MB (domyślne ~7,3 GB nie mieści się na dysku runnera) i włącza jeden emulator. Akcja ma `disable-linux-hw-accel: false`, więc nie dopisuje `-accel off`. Czeka na `sys.boot_completed=1` do 20 minut. Skrypt (Appium i Gradle) startuje dopiero po tym czekaniu i jeszcze raz sprawdza boot, do 12 minut.
 6. Dopiero po `boot_completed=1` Appium startuje w tle na porcie 4723.
 7. `./gradlew test --tests tests.SettingsTest` odpala tylko testy Ustawień. Job nie zakłada, że Chrome jest w obrazie.
 

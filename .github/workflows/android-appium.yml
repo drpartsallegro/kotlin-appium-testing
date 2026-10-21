@@ -37,18 +37,20 @@ jobs:
           appium --version
 
       # Runner ma /dev/kvm, ale użytkownik runner nie jest w grupie kvm (0660).
-      # Bez zapisu akcja dopisuje -accel off i API 36 idzie w TCG (bez AVX).
+      # Krok emulatora ma disable-linux-hw-accel: false, więc bez zapisu nie ma TCG.
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle || true
           if [ -e /dev/kvm ]; then
             sudo chmod 666 /dev/kvm
           fi
           ls -l /dev/kvm || true
           if [ ! -w /dev/kvm ]; then
-            echo "::warning::/dev/kvm is not writable. The emulator will fall back to software emulation."
+            echo "::error::/dev/kvm is not writable. The emulator step requires KVM and does not pass -accel off."
+            exit 1
           fi
 
       - name: Settings tests on one API 36 emulator
@@ -59,12 +61,16 @@ jobs:
           arch: x86_64
           profile: pixel_7
           ram-size: 2048M
+          # Domyślny userdata API 36 chce ~7372 MB. Na runnerze zostało 7162 MB,
+          # emulator kończył się FATAL zanim adb w ogóle zobaczył urządzenie.
+          disk-size: 2048M
           disable-animations: true
-          disable-linux-hw-accel: auto
-          # Akcja sama łapie "device offline" (adb exit 1) aż do tego limitu.
-          emulator-boot-timeout: 900
-          # -accel auto używa KVM, gdy /dev/kvm jest zapisywalny. GPU zostaje programowe:
-          # runner nie ma karty, a -gpu host na ubuntu-latest wywala start.
+          # false: akcja nie dopisuje -accel off. KVM włącza krok wyżej.
+          disable-linux-hw-accel: false
+          # Akcja sama czeka na sys.boot_completed. 900 s minęło na martwym procesie.
+          emulator-boot-timeout: 1200
+          # -accel auto używa KVM. GPU zostaje programowe: log miał swiftshader,
+          # a sprawdzenie sprzętowej karty było pominięte.
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -accel auto
           # Każda linia script to osobny sh -c. Pętla musi być w jednej linii.
           # Skrypt startuje dopiero po boot-wait akcji; tu jeszcze raz czekamy,
