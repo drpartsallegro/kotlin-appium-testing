@@ -62,8 +62,15 @@ class SettingsPage(driver: AndroidDriver) : BasePage(driver) {
         var last = previous
         return try {
             Waits.untilNotNull(driver) {
-                last = visibleHomeRows()
-                if (last.isNotEmpty() && last != previous) last else null
+                val current = readAfterAnr {
+                    labelsOnScreen(HOME_ROWS).takeIf { it.isNotEmpty() }
+                }
+                if (current == null) {
+                    null
+                } else {
+                    last = current
+                    if (current != previous) current else null
+                }
             }
         } catch (_: TimeoutException) {
             error("Lista się nie zmieniła. Było $previous, jest $last")
@@ -104,12 +111,14 @@ class SettingsPage(driver: AndroidDriver) : BasePage(driver) {
 
     fun scrollUntilAny(candidates: List<String>): String {
         repeat(SCROLL_ATTEMPTS) {
-            candidatesOnScreen(candidates).firstOrNull()?.let { return it }
-            scrollDown()
+            readAfterAnr { labelsOnScreen(candidates).firstOrNull() }?.let { return it }
+            if (!systemUiNotResponding()) {
+                scrollDown()
+            }
         }
         return try {
             Waits.untilNotNull(driver, timeoutSeconds = 5) {
-                candidatesOnScreen(candidates).firstOrNull()
+                readAfterAnr { labelsOnScreen(candidates).firstOrNull() }
             }
         } catch (_: TimeoutException) {
             error("Nie widać żadnej z etykiet: $candidates")
@@ -144,6 +153,80 @@ class SettingsPage(driver: AndroidDriver) : BasePage(driver) {
     }
 
     private fun candidatesOnScreen(candidates: List<String>): List<String> {
+        return readAfterAnr { labelsOnScreen(candidates) }.orEmpty()
+    }
+
+    // Dialog "System UI isn't responding" leży na Ustawieniach. Napis "System"
+    // w tytule nie jest wierszem listy. Wait zostawia proces; Close app ubija System UI.
+    private var anrDismissDepth = 0
+
+    private fun <T : Any> readAfterAnr(lookup: () -> T?): T? {
+        if (anrDismissDepth > 0) {
+            return lookup()
+        }
+        anrDismissDepth++
+        try {
+            repeat(ANR_DISMISS_ATTEMPTS) {
+                if (systemUiNotResponding()) {
+                    if (clickSystemUiWait()) {
+                        waitUntilAnrCloses()
+                    }
+                } else {
+                    val found = lookup()
+                    if (!systemUiNotResponding()) {
+                        return found
+                    }
+                    if (clickSystemUiWait()) {
+                        waitUntilAnrCloses()
+                    }
+                }
+            }
+            return if (systemUiNotResponding()) null else lookup()
+        } finally {
+            anrDismissDepth--
+        }
+    }
+
+    private fun systemUiNotResponding(): Boolean {
+        return runCatching {
+            val title = findDisplayed(ANR_TITLE_ID)
+            val titleText = title?.let { elementText(it) }.orEmpty()
+            titleText.contains("isn't responding", ignoreCase = true) ||
+                visibleNodeTexts().any { text -> text.contains("isn't responding", ignoreCase = true) } ||
+                (title != null && findDisplayed(ANR_WAIT_ID) != null)
+        }.getOrDefault(false)
+    }
+
+    private fun clickSystemUiWait(): Boolean {
+        val button = findDisplayed(ANR_WAIT_ID)
+            ?: findDisplayed(WAIT_TEXT)
+            ?: driver.findElements(ANR_WAIT_ID).firstOrNull()
+        if (button == null || isCloseApp(button)) {
+            return false
+        }
+        return runCatching {
+            button.click()
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun isCloseApp(element: WebElement): Boolean {
+        val id = runCatching { element.getAttribute("resource-id") }.getOrNull().orEmpty()
+        if (id == "android:id/aerr_close") {
+            return true
+        }
+        return elementText(element).equals("Close app", ignoreCase = true)
+    }
+
+    private fun waitUntilAnrCloses() {
+        runCatching {
+            Waits.untilNotNull(driver, timeoutSeconds = ANR_CLOSE_WAIT_SECONDS) {
+                if (systemUiNotResponding()) null else true
+            }
+        }
+    }
+
+    private fun labelsOnScreen(candidates: List<String>): List<String> {
         // Tekst z TextView to to samo, co widzi UiSelector.textContains, bez osobnego
         // zapytania na każdą etykietę.
         val fromNodes = pick(candidates, visibleNodeTexts())
@@ -273,6 +356,14 @@ class SettingsPage(driver: AndroidDriver) : BasePage(driver) {
 
     private companion object {
         const val SCROLL_ATTEMPTS = 8
+        const val ANR_DISMISS_ATTEMPTS = 3
+        const val ANR_CLOSE_WAIT_SECONDS = 3L
+
+        val ANR_TITLE_ID: By = AppiumBy.id("android:id/alertTitle")
+        val ANR_WAIT_ID: By = AppiumBy.id("android:id/aerr_wait")
+        val WAIT_TEXT: By = AppiumBy.androidUIAutomator(
+            "new UiSelector().text(\"Wait\")"
+        )
 
         val SEARCH_TITLE_ID: By = AppiumBy.id("com.android.settings:id/search_bar_title")
 

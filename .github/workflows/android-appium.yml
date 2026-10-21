@@ -90,10 +90,12 @@ jobs:
           emulator-boot-timeout: 1200
           # -accel auto używa KVM. GPU zostaje programowe: log miał swiftshader,
           # a sprawdzenie sprzętowej karty było pominięte.
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -accel auto
+          # pixel_7 to 1080x2400. Przy swiftshader_indirect System UI dostaje ANR
+          # ("System UI isn't responding") i zasłania Ustawienia. Mniejszy skin.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -accel auto -skin 720x1280
           # Jedna linia = jedno sh -c. Po Create AVD, przed startem emulatora.
           pre-emulator-launch-script: |
-            cfg="${ANDROID_AVD_HOME}/test.avd/config.ini"; echo "AVD home: ${ANDROID_AVD_HOME}"; echo "disk.dataPartition.size before:"; grep -n '^disk.dataPartition.size=' "$cfg" || true; sed -i '/^disk.dataPartition.size=/d' "$cfg"; printf '%s\n' 'disk.dataPartition.size=1024M' >> "$cfg"; echo "disk.dataPartition.size after:"; grep -n '^disk.dataPartition.size=' "$cfg"; test "$(grep -c '^disk.dataPartition.size=1024M$' "$cfg")" = "1"; df -h /
+            cfg="${ANDROID_AVD_HOME}/test.avd/config.ini"; echo "AVD home: ${ANDROID_AVD_HOME}"; echo "disk.dataPartition.size before:"; grep -n '^disk.dataPartition.size=' "$cfg" || true; sed -i '/^disk.dataPartition.size=/d' "$cfg"; printf '%s\n' 'disk.dataPartition.size=1024M' >> "$cfg"; echo "disk.dataPartition.size after:"; grep -n '^disk.dataPartition.size=' "$cfg"; test "$(grep -c '^disk.dataPartition.size=1024M$' "$cfg")" = "1"; for key in hw.lcd.width hw.lcd.height skin.name skin.path skin.dynamic; do sed -i "/^${key}=/d" "$cfg"; done; printf '%s\n' 'hw.lcd.width=720' 'hw.lcd.height=1280' 'skin.name=720x1280' 'skin.dynamic=yes' >> "$cfg"; echo "lcd/skin after:"; grep -nE '^(hw.lcd.width|hw.lcd.height|skin.name|skin.dynamic)=' "$cfg"; df -h /
           # Każda linia script to osobny sh -c. Pętla musi być w jednej linii.
           # Skrypt startuje dopiero po boot-wait akcji; tu jeszcze raz czekamy,
           # ale kod 1 z adb (offline) nie kończy powłoki.
@@ -106,6 +108,9 @@ jobs:
             adb shell settings put secure user_setup_complete 1
             adb shell am force-stop com.google.android.setupwizard || true
             adb shell am force-stop com.android.provision || true
+            adb shell settings put global window_animation_scale 0
+            adb shell settings put global transition_animation_scale 0
+            adb shell settings put global animator_duration_scale 0
             chmod +x ./gradlew && ./gradlew test --tests tests.SettingsTest --no-daemon
       # Zrzuty są w build/failures na runnerze. Bez tego kroku job je kasuje.
       - name: Print failure UI dump
