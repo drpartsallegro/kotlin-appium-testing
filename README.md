@@ -68,22 +68,24 @@ Gdy test padnie, zrzut emulatora i krótki opis (klasa, metoda, wyjątek, począ
 
 Workflow jest w `.github/workflows/android-appium.yml`. Nie uruchamiasz go z laptopa ani z IntelliJ. GitHub sam go startuje, gdy wypchniesz commity (`git push`) do repozytorium.
 
-W tym jednym zadaniu dzieje się po kolei:
+Urządzenia i wersje Androida wybiera `strategy.matrix` w tym pliku: telefon `pixel_7` i tablet `pixel_tablet`, oraz API 34 i API 35. Te same dwa profile wchodzą na obie wersje, więc GitHub uruchamia cztery zadania. W każdym jest jedna sesja `tests.SettingsTest`, ta sama klasa na każdym urządzeniu i każdej wersji Androida. Jedno zadanie startuje tylko jeden emulator, a `fail-fast: false` zostawia pozostałe zadania w biegu, gdy jedno padnie. Artefakty mają w nazwie urządzenie i API, na przykład `appium-report-pixel_7-api34` i `gradle-test-report-pixel_7-api34`. Strona tego uruchomienia na Pages wymienia wszystkie cztery pary i linkuje raport Allure oraz Gradle; brak artefaktu jest opisany jako brak, a reszta i tak się publikuje.
 
-1. Runner `ubuntu-latest` pobiera kod.
+W każdym z tych zadań dzieje się po kolei:
+
+1. Runner `ubuntu-24.04` pobiera kod.
 2. Instaluje Javę 17 i Node.
 3. Instaluje Appium 3 oraz sterownik UiAutomator2.
 4. Reguła udev (i `chmod` na istniejącym węźle) daje runnerowi zapis do `/dev/kvm`, żeby emulator użył akceleracji hosta zamiast TCG.
-5. Akcja emulatora dociąga Android SDK command line tools i jeden obraz API 36 `google_apis` x86_64, tworzy profil Pixel 7 z 2048 MB RAM i partycją userdata 2048 MB (domyślne ~7,3 GB nie mieści się na dysku runnera) i włącza jeden emulator. Akcja ma `disable-linux-hw-accel: false`, więc nie dopisuje `-accel off`. Czeka na `sys.boot_completed=1` do 20 minut. Skrypt (Appium i Gradle) startuje dopiero po tym czekaniu i jeszcze raz sprawdza boot, do 12 minut.
-6. Dopiero po `boot_completed=1` Appium startuje w tle na porcie 4723.
+5. Przed AVD runner kasuje preinstalowane system-images i NDK. Akcja emulatora dociąga jeden obraz z macierzy (`google_apis`, x86_64), tworzy profil z macierzy z 2048 MB RAM i jedną partycją userdata 1024 MB (domyślne ~7,3 GB nie mieści się na dysku runnera) i włącza jeden emulator. Skin to 720x1280, animacje są wyłączone. Akcja ma `disable-linux-hw-accel: false`, więc nie dopisuje `-accel off`. Czeka na `sys.boot_completed=1` do 20 minut. Skrypt (Appium i Gradle) startuje dopiero po tym czekaniu i jeszcze raz sprawdza boot, do 12 minut.
+6. Dopiero po `boot_completed=1` Appium startuje w tle na porcie 4723. Obraz dostaje `device_provisioned` i `user_setup_complete`.
 7. `./gradlew test --tests tests.SettingsTest` odpala tylko testy Ustawień. Job nie zakłada, że Chrome jest w obrazie.
 
 Jedno zadanie = jeden emulator = jedna sesja Appium. Ta sama zasada co przy lokalnym `emulator-5554`.
 
-Po każdym uruchomieniu, także gdy testy przejdą, w Actions są dwa raporty HTML. Pobierz zip artefaktu i otwórz `index.html` w przeglądarce (bez lokalnego serwera). `appium-report` to raport Allure w jednym pliku. `gradle-test-report` to raport Gradle z `build/reports/tests/test`. Przy padzie testu zrzuty ekranu są osobno w `settings-test-evidence`.
+Po każdym zadaniu, także gdy testy przejdą, w Actions jest para raportów HTML. Pobierz zip artefaktu i otwórz `index.html` w przeglądarce (bez lokalnego serwera). Nazwa `appium-report-<urządzenie>-api<poziom>` to raport Allure w jednym pliku. `gradle-test-report-<urządzenie>-api<poziom>` to raport Gradle z `build/reports/tests/test`. Przy padzie testu zrzuty ekranu są osobno, w artefakcie `settings-test-evidence-<urządzenie>-api<poziom>`.
 
 ## Raport na GitHub Pages
 
-Otwórz https://drpartsallegro.github.io/kotlin-appium-testing/ i wybierz uruchomienie z listy. Pojedynczy raport jest pod `https://drpartsallegro.github.io/kotlin-appium-testing/runs/<id>/`. Lista trzyma ostatnie 30 uruchomień z gałęzi main. Artefakty danego uruchomienia nadal są w Actions.
+Otwórz https://drpartsallegro.github.io/kotlin-appium-testing/ i wybierz uruchomienie z listy. Pojedyncze uruchomienie jest pod `https://drpartsallegro.github.io/kotlin-appium-testing/runs/<id>/` i pokazuje cztery kombinacje z macierzy. Lista trzyma ostatnie 30 uruchomień z gałęzi main. Artefakty danego uruchomienia nadal są w Actions.
 
 Nie włączaj sugerowanego workflow „GitHub Pages Jekyll” ani „Static HTML”. Raport wystawia ten workflow. Adres zwraca 404, dopóki zadanie pages nie przejdzie choć raz.

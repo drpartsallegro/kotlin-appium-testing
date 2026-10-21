@@ -125,6 +125,65 @@ report_link() {
   fi
 }
 
+# download-artifact@v7 extracts one match directly into the destination
+# and two or more matches into named subdirectories. matrix-cell.txt
+# identifies a flat download. Directory names identify the rest.
+find_cell_report() {
+  local root=$1 prefix=$2 device=$3 api=$4
+  local slug="${device}-api${api}"
+  local named="$root/${prefix}-${slug}"
+  local dir marker
+  if has_html "$named"; then
+    printf '%s\n' "$named"
+    return 0
+  fi
+  if [ -d "$root" ] && [ -f "$root/matrix-cell.txt" ] && has_html "$root"; then
+    marker=$(head -n 1 "$root/matrix-cell.txt" | tr -d '\r')
+    if [ "$marker" = "${device} ${api}" ]; then
+      printf '%s\n' "$root"
+      return 0
+    fi
+  fi
+  [ -d "$root" ] || return 1
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    [ -f "$dir/matrix-cell.txt" ] || continue
+    marker=$(head -n 1 "$dir/matrix-cell.txt" | tr -d '\r')
+    if [ "$marker" = "${device} ${api}" ] && has_html "$dir"; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+  done < <(find "$root" -mindepth 1 -maxdepth 1 -type d | sort)
+  return 1
+}
+
+# MATRIX_CELLS is set by android-appium.yml and matches strategy.matrix.
+read_matrix_cells() {
+  local line device api
+  CELLS=()
+  if [ -z "${MATRIX_CELLS:-}" ]; then
+    echo "MATRIX_CELLS is empty" >&2
+    exit 1
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [ -n "$line" ] || continue
+    if [[ ! "$line" =~ ^([a-z0-9_]+)[[:space:]]+([0-9]+)$ ]]; then
+      echo "invalid matrix cell: ${line}" >&2
+      exit 1
+    fi
+    device=${BASH_REMATCH[1]}
+    api=${BASH_REMATCH[2]}
+    CELLS+=("${device} ${api}")
+  done <<< "$MATRIX_CELLS"
+  if [ "${#CELLS[@]}" -eq 0 ]; then
+    echo "MATRIX_CELLS is empty" >&2
+    exit 1
+  fi
+}
+
 collect_ids() {
   local path name
   while IFS= read -r path; do
@@ -220,8 +279,10 @@ else
 fi
 mkdir -p "$SITE_DIR/runs"
 
+read_matrix_cells
+
 if ! has_html "$ALLURE_DIR" && ! has_html "$GRADLE_DIR"; then
-  echo "Both report artifacts are missing; skipping Pages deploy." >&2
+  echo "Every matrix report is missing; skipping Pages deploy." >&2
   rm -rf "$SITE_DIR"
   set_output deploy false
   assert_checkout_unchanged
@@ -232,15 +293,58 @@ run_dir="$SITE_DIR/runs/$RUN_ID"
 rm -rf "$run_dir"
 mkdir -p "$run_dir"
 
-if install_report "$ALLURE_DIR" "$run_dir/allure"; then
-  echo "included Allure report" >&2
-else
-  echo "Allure report is missing; publishing the run without it" >&2
-fi
-if install_report "$GRADLE_DIR" "$run_dir/gradle"; then
-  echo "included Gradle report" >&2
-else
-  echo "Gradle report is missing; publishing the run without it" >&2
+sections=""
+installed=0
+seen_slugs=" "
+for cell in "${CELLS[@]}"; do
+  device=${cell%% *}
+  api=${cell##* }
+  slug="${device}-api${api}"
+  if [[ "$seen_slugs" == *" ${slug} "* ]]; then
+    echo "duplicate matrix cell ${slug}" >&2
+    exit 1
+  fi
+  seen_slugs="${seen_slugs}${slug} "
+  heading=$(html_escape "${device}, API ${api}")
+  allure_missing="Brak raportu Allure dla ${device}, API ${api}."
+  gradle_missing="Brak raportu Gradle dla ${device}, API ${api}."
+  if src=$(find_cell_report "$ALLURE_DIR" "appium-report" "$device" "$api"); then
+    if install_report "$src" "$run_dir/$slug/allure"; then
+      rm -f "$run_dir/$slug/allure/matrix-cell.txt"
+      installed=$((installed + 1))
+      echo "included Allure report for ${slug}" >&2
+    else
+      echo "Allure report is missing for ${slug}" >&2
+    fi
+  else
+    echo "Allure report is missing for ${slug}" >&2
+  fi
+  if src=$(find_cell_report "$GRADLE_DIR" "gradle-test-report" "$device" "$api"); then
+    if install_report "$src" "$run_dir/$slug/gradle"; then
+      rm -f "$run_dir/$slug/gradle/matrix-cell.txt"
+      installed=$((installed + 1))
+      echo "included Gradle report for ${slug}" >&2
+    else
+      echo "Gradle report is missing for ${slug}" >&2
+    fi
+  else
+    echo "Gradle report is missing for ${slug}" >&2
+  fi
+  allure_li=$(report_link "${slug}/allure" "Raport Allure, ${device}, API ${api}" "$allure_missing")
+  gradle_li=$(report_link "${slug}/gradle" "Raport Gradle, ${device}, API ${api}" "$gradle_missing")
+  sections="${sections}  <h2>${heading}</h2>"$'\n'
+  sections="${sections}  <ul>"$'\n'
+  sections="${sections}    ${allure_li}"$'\n'
+  sections="${sections}    ${gradle_li}"$'\n'
+  sections="${sections}  </ul>"$'\n'
+done
+
+if [ "$installed" -eq 0 ]; then
+  echo "No matrix report could be installed; skipping Pages deploy." >&2
+  rm -rf "$SITE_DIR"
+  set_output deploy false
+  assert_checkout_unchanged
+  exit 0
 fi
 
 timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -259,9 +363,6 @@ if [ -n "$actions_href" ]; then
 else
   actions_li="<li>Log w Actions jest niedostępny.</li>"
 fi
-allure_li=$(report_link "allure" "Raport Allure" "Brak raportu Allure w tym uruchomieniu.")
-gradle_li=$(report_link "gradle" "Raport Gradle" "Brak raportu Gradle w tym uruchomieniu.")
-
 cat > "$run_dir/index.html" <<EOF
 <!DOCTYPE html>
 <html lang="pl">
@@ -273,6 +374,7 @@ cat > "$run_dir/index.html" <<EOF
     body { font-family: system-ui, sans-serif; margin: 2rem; color: #1f2328; line-height: 1.45; }
     a { color: #0969da; }
     code { font-family: ui-monospace, monospace; }
+    h2 { font-size: 1.1rem; margin-top: 1.5rem; }
   </style>
 </head>
 <body>
@@ -282,9 +384,8 @@ cat > "$run_dir/index.html" <<EOF
     <li>Identyfikator: ${RUN_ID}</li>
     <li>Commit: <code>${RUN_SHA}</code></li>
     ${actions_li}
-    ${allure_li}
-    ${gradle_li}
   </ul>
+${sections}
 </body>
 </html>
 EOF

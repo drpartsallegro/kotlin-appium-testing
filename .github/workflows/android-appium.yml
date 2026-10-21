@@ -12,8 +12,16 @@ permissions:
 
 jobs:
   settings:
+    name: Settings ${{ matrix.device }} API ${{ matrix.api-level }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      # Gdy jedno zadanie padnie, pozostałe idą dalej.
+      fail-fast: false
+      # Ten plik wybiera urządzenia i wersje Androida.
+      matrix:
+        device: [pixel_7, pixel_tablet]
+        api-level: [34, 35]
     # Jedno zadanie = jeden emulator = jedna sesja Appium. Ta sama zasada co lokalnie.
     steps:
       - name: Checkout
@@ -55,7 +63,7 @@ jobs:
 
       # Run 592f9e9 skasował system-images przez sudo i padł po ~10 min, przed 20-minutowym czekaniem na boot.
       # SDK na runnerze jest roota. Po rm katalogu runner nie utworzy go ponownie i sdkmanager kończy krok.
-      # Zostają obraz API 36 (akcja dociąga go sama), bez NDK i bez nieużywanych platforms.
+      # Zostaje miejsce na jeden obraz z macierzy (API 34 albo 35), bez NDK i bez nieużywanych platforms.
       - name: Free disk before the emulator
         run: |
           df -h /
@@ -71,13 +79,13 @@ jobs:
           fi
           df -h /
 
-      - name: Settings tests on one API 36 emulator
+      - name: Settings tests on ${{ matrix.device }} API ${{ matrix.api-level }}
         uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
-          api-level: 36
+          api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
-          profile: pixel_7
+          profile: ${{ matrix.device }}
           avd-name: test
           ram-size: 2048M
           # v2.38.0 tylko DOPISUJE disk.dataPartition.size. avdmanager wstawia wcześniej ~7372M,
@@ -90,8 +98,8 @@ jobs:
           emulator-boot-timeout: 1200
           # -accel auto używa KVM. GPU zostaje programowe: log miał swiftshader,
           # a sprawdzenie sprzętowej karty było pominięte.
-          # pixel_7 to 1080x2400. Przy swiftshader_indirect System UI dostaje ANR
-          # ("System UI isn't responding") i zasłania Ustawienia. Mniejszy skin.
+          # pixel_7 i pixel_tablet mają duży ekran. Przy swiftshader_indirect System UI dostaje ANR
+          # ("System UI isn't responding") i zasłania Ustawienia. Mniejszy skin na obu profilach.
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -accel auto -skin 720x1280
           # Jedna linia = jedno sh -c. Po Create AVD, przed startem emulatora.
           pre-emulator-launch-script: |
@@ -103,7 +111,7 @@ jobs:
             adb wait-for-device; boot=0; for i in $(seq 1 360); do prop=$(adb shell getprop sys.boot_completed 2>/dev/null || true); prop=$(printf '%s' "$prop" | tr -d '\r'); if [ "$prop" = "1" ]; then boot=1; break; fi; sleep 2; done; if [ "$boot" != "1" ]; then echo "Emulator stayed offline or did not set boot_completed=1 within 12 minutes"; exit 1; fi
             export PATH="$PATH:$(npm prefix -g)/bin"; nohup appium --address 127.0.0.1 --port 4723 > appium.log 2>&1 & echo $! > appium.pid; sleep 1
             ready=0; for i in $(seq 1 30); do if curl -sf http://127.0.0.1:4723/status; then ready=1; break; fi; sleep 2; done; if [ "$ready" != "1" ]; then echo "Appium did not answer /status"; cat appium.log; exit 1; fi
-            echo "Mark the fresh image provisioned so Settings home does not finish() on API 36"
+            echo "Mark the fresh image provisioned so Settings home does not finish()"
             adb shell settings put global device_provisioned 1
             adb shell settings put secure user_setup_complete 1
             adb shell am force-stop com.google.android.setupwizard || true
@@ -125,7 +133,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: settings-test-evidence
+          name: settings-test-evidence-${{ matrix.device }}-api${{ matrix.api-level }}
           if-no-files-found: ignore
           path: |
             build/failures
@@ -139,18 +147,28 @@ jobs:
           export PATH="$PATH:$(npm prefix -g)/bin"
           allure --version
           allure generate build/allure-results --clean --single-file -o build/appium-report
+      - name: Tag reports with device and API
+        if: always()
+        run: |
+          cell="${{ matrix.device }} ${{ matrix.api-level }}"
+          if [ -d build/appium-report ]; then
+            printf '%s\n' "$cell" > build/appium-report/matrix-cell.txt
+          fi
+          if [ -d build/reports/tests/test ]; then
+            printf '%s\n' "$cell" > build/reports/tests/test/matrix-cell.txt
+          fi
       - name: Upload Allure HTML report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: appium-report
+          name: appium-report-${{ matrix.device }}-api${{ matrix.api-level }}
           if-no-files-found: warn
           path: build/appium-report
       - name: Upload Gradle HTML report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: gradle-test-report
+          name: gradle-test-report-${{ matrix.device }}-api${{ matrix.api-level }}
           if-no-files-found: warn
           path: build/reports/tests/test
 
@@ -178,22 +196,23 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
-      - name: Download Allure report
+      - name: Download Allure reports
         id: allure
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
-          name: appium-report
+          pattern: appium-report-*
           path: incoming/allure
 
-      - name: Download Gradle report
+      - name: Download Gradle reports
         id: gradle
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
-          name: gradle-test-report
+          pattern: gradle-test-report-*
           path: incoming/gradle
 
+      # Te same cztery pary co strategy.matrix. Brak artefaktu nie blokuje pozostałych.
       - name: Assemble Pages site
         id: site
         env:
@@ -203,6 +222,11 @@ jobs:
           SERVER_URL: ${{ github.server_url }}
           ALLURE_DIR: incoming/allure
           GRADLE_DIR: incoming/gradle
+          MATRIX_CELLS: |
+            pixel_7 34
+            pixel_7 35
+            pixel_tablet 34
+            pixel_tablet 35
         run: bash .github/scripts/assemble-pages-site.sh
 
       - name: Upload GitHub Pages artifact
