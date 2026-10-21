@@ -1,6 +1,7 @@
 package support
 
 import io.appium.java_client.android.AndroidDriver
+import io.qameta.allure.Allure
 import org.junit.jupiter.api.extension.AfterTestExecutionCallback
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.openqa.selenium.OutputType
@@ -54,8 +55,7 @@ class FailureEvidence : AfterTestExecutionCallback {
         val firstLines = trace.toString().lineSequence().take(15).joinToString("\n").trimEnd()
         val uiDump = uiDump(driver)
 
-        File(dir, "$baseName.txt").writeText(
-            """
+        val description = """
             Klasa: $className
             Metoda: $methodName
             Wyjątek: ${failure.javaClass.simpleName}: ${failure.message ?: "(brak komunikatu)"}
@@ -65,7 +65,21 @@ class FailureEvidence : AfterTestExecutionCallback {
 
             $uiDump
             """.trimIndent() + "\n"
-        )
+        File(dir, "$baseName.txt").writeText(description)
+        attachToAllure(image, description)
+    }
+
+    private fun attachToAllure(image: File, description: String) {
+        try {
+            if (image.isFile) {
+                image.inputStream().use { stream ->
+                    Allure.addAttachment("Zrzut ekranu", "image/png", stream, "png")
+                }
+            }
+            Allure.addAttachment("Opis błędu", "text/plain", description, "txt")
+        } catch (error: Exception) {
+            System.err.println("Nie udało się dołączyć śladu do Allure: ${error.message}")
+        }
     }
 
     private fun uiDump(driver: AndroidDriver?): String {

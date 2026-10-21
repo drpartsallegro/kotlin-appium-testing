@@ -79,3 +79,5 @@ W tym jednym zadaniu dzieje się po kolei:
 7. `./gradlew test --tests tests.SettingsTest` odpala tylko testy Ustawień. Job nie zakłada, że Chrome jest w obrazie.
 
 Jedno zadanie = jeden emulator = jedna sesja Appium. Ta sama zasada co przy lokalnym `emulator-5554`.
+
+Po każdym uruchomieniu, także gdy testy przejdą, w Actions są dwa raporty HTML. Pobierz zip artefaktu i otwórz `index.html` w przeglądarce (bez lokalnego serwera). `appium-report` to raport Allure w jednym pliku. `gradle-test-report` to raport Gradle z `build/reports/tests/test`. Przy padzie testu zrzuty ekranu są osobno w `settings-test-evidence`.

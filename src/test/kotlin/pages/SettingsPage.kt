@@ -7,15 +7,18 @@ import org.openqa.selenium.By
 import org.openqa.selenium.TimeoutException
 import org.openqa.selenium.WebElement
 import support.Waits
+import support.allureStep
 
 // Ekran główny Ustawień. Świeży obraz google_apis nie ma id z Pixela
 // (search_bar_title, android:id/title), więc szukamy tekstów z AOSP.
 class SettingsPage(driver: AndroidDriver) : BasePage(driver) {
 
     fun waitForSettingsPackage(): String {
-        return Waits.untilNotNull(driver) {
-            val pkg = foregroundPackage()
-            if (pkg == AndroidConfig.SETTINGS_PACKAGE) pkg else null
+        return allureStep("Otwórz Ustawienia") {
+            Waits.untilNotNull(driver) {
+                val pkg = foregroundPackage()
+                if (pkg == AndroidConfig.SETTINGS_PACKAGE) pkg else null
+            }
         }
     }
 
@@ -78,13 +81,17 @@ class SettingsPage(driver: AndroidDriver) : BasePage(driver) {
     }
 
     fun scrollUntilAbout(): String {
-        return scrollUntilAny(ABOUT_ROWS)
+        return allureStep("Przewiń do About") {
+            scrollUntilAny(ABOUT_ROWS)
+        }
     }
 
     fun openNetworkRow(): String {
-        val label = scrollUntilAny(NETWORK_ROWS)
-        tapLabel(label)
-        return label
+        return allureStep("Otwórz wiersz sieci") {
+            val label = scrollUntilAny(NETWORK_ROWS)
+            tapLabel(label)
+            label
+        }
     }
 
     // Pozycja, która jest na stronie sieci, a nie na liście głównej.
@@ -99,12 +106,14 @@ class SettingsPage(driver: AndroidDriver) : BasePage(driver) {
     }
 
     fun goBack() {
-        driver.navigate().back()
-        Waits.untilNotNull(driver) {
-            if (candidatesOnScreen(NETWORK_DETAILS).isNotEmpty()) {
-                null
-            } else {
-                homeTitleOrNull()
+        allureStep("Wróć") {
+            driver.navigate().back()
+            Waits.untilNotNull(driver) {
+                if (candidatesOnScreen(NETWORK_DETAILS).isNotEmpty()) {
+                    null
+                } else {
+                    homeTitleOrNull()
+                }
             }
         }
     }
@@ -126,12 +135,16 @@ class SettingsPage(driver: AndroidDriver) : BasePage(driver) {
     }
 
     fun backToTop() {
-        repeat(3) { drag(fromYFraction = 0.35, toYFraction = 0.75) }
+        allureStep("Wróć na górę") {
+            repeat(3) { drag(fromYFraction = 0.35, toYFraction = 0.75) }
+        }
     }
 
     fun scrollDown() {
-        // Palec w górę: pod spodem widać kolejne wiersze.
-        drag(fromYFraction = 0.75, toYFraction = 0.35)
+        allureStep("Przewiń w dół") {
+            // Palec w górę: pod spodem widać kolejne wiersze.
+            drag(fromYFraction = 0.75, toYFraction = 0.35)
+        }
     }
 
     private fun homeTitleOrNull(): String? {

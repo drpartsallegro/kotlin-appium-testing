@@ -130,3 +130,26 @@ jobs:
           path: |
             build/failures
             build/reports/tests
+      # Gradle i Allure piszą do build/ na hoście. Generowanie jest poza skryptem
+      # emulatora, który kończy się kodem 1, więc raport powstaje także po padzie testów.
+      - name: Generate single-file Allure report
+        if: always()
+        run: |
+          npm install -g allure-commandline@2.46.1
+          export PATH="$PATH:$(npm prefix -g)/bin"
+          allure --version
+          allure generate build/allure-results --clean --single-file -o build/appium-report
+      - name: Upload Allure HTML report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: appium-report
+          if-no-files-found: warn
+          path: build/appium-report
+      - name: Upload Gradle HTML report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gradle-test-report
+          if-no-files-found: warn
+          path: build/reports/tests/test
