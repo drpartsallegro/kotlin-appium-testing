@@ -12,21 +12,21 @@ permissions:
 
 jobs:
   settings:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     # Jedno zadanie = jeden emulator = jedna sesja Appium. Ta sama zasada co lokalnie.
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -53,6 +53,24 @@ jobs:
             exit 1
           fi
 
+      # Obraz runnera ma własne system-images. Zostało ~7 GB, a domyślny userdata API 36 chce ~7372 MB.
+      # Akcja i tak dociąga jeden obraz google_apis x86_64 API 36. Kasujemy tylko to, czego ten job nie używa.
+      - name: Free disk before the emulator
+        run: |
+          df -h /
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "SDK root: $sdk"
+          if [ -d "$sdk" ]; then
+            sudo du -sh "$sdk"/* 2>/dev/null || true
+          else
+            echo "No preinstalled SDK at $sdk"
+          fi
+          if [ -d "$sdk/system-images" ]; then
+            sudo rm -rf "$sdk/system-images"
+          fi
+          sudo rm -rf "$sdk/ndk" "$sdk/ndk-bundle" || true
+          df -h /
+
       - name: Settings tests on one API 36 emulator
         uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
@@ -60,18 +78,21 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_7
+          avd-name: test
           ram-size: 2048M
-          # Domyślny userdata API 36 chce ~7372 MB. Na runnerze zostało 7162 MB,
-          # emulator kończył się FATAL zanim adb w ogóle zobaczył urządzenie.
+          # v2.38.0 czyta disk-size i dopisuje disk.dataPartition.size na końcu config.ini.
+          # avdmanager wpisuje wcześniej domyślne ~6–7 GB. Skrypt poniżej zostawia jedną linię 2048M.
           disk-size: 2048M
           disable-animations: true
           # false: akcja nie dopisuje -accel off. KVM włącza krok wyżej.
           disable-linux-hw-accel: false
-          # Akcja sama czeka na sys.boot_completed. 900 s minęło na martwym procesie.
           emulator-boot-timeout: 1200
           # -accel auto używa KVM. GPU zostaje programowe: log miał swiftshader,
           # a sprawdzenie sprzętowej karty było pominięte.
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -accel auto
+          # Jedna linia = jedno sh -c. Po Create AVD, przed startem emulatora.
+          pre-emulator-launch-script: |
+            cfg="${ANDROID_AVD_HOME}/test.avd/config.ini"; echo "disk.dataPartition.size before:"; grep -n '^disk.dataPartition.size=' "$cfg" || true; sed -i '/^disk.dataPartition.size=/d' "$cfg"; printf '%s\n' 'disk.dataPartition.size=2048M' >> "$cfg"; echo "disk.dataPartition.size after:"; grep -n '^disk.dataPartition.size=' "$cfg"; df -h /
           # Każda linia script to osobny sh -c. Pętla musi być w jednej linii.
           # Skrypt startuje dopiero po boot-wait akcji; tu jeszcze raz czekamy,
           # ale kod 1 z adb (offline) nie kończy powłoki.
@@ -96,7 +117,7 @@ jobs:
           fi
       - name: Upload failure screenshots and test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: settings-test-evidence
           if-no-files-found: ignore
