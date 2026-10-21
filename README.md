@@ -81,3 +81,9 @@ W tym jednym zadaniu dzieje się po kolei:
 Jedno zadanie = jeden emulator = jedna sesja Appium. Ta sama zasada co przy lokalnym `emulator-5554`.
 
 Po każdym uruchomieniu, także gdy testy przejdą, w Actions są dwa raporty HTML. Pobierz zip artefaktu i otwórz `index.html` w przeglądarce (bez lokalnego serwera). `appium-report` to raport Allure w jednym pliku. `gradle-test-report` to raport Gradle z `build/reports/tests/test`. Przy padzie testu zrzuty ekranu są osobno w `settings-test-evidence`.
+
+## Raport na GitHub Pages
+
+Otwórz https://drpartsallegro.github.io/kotlin-appium-testing/ i wybierz uruchomienie z listy. Pojedynczy raport jest pod `https://drpartsallegro.github.io/kotlin-appium-testing/runs/<id>/`. Lista trzyma ostatnie 30 uruchomień z gałęzi main. Artefakty danego uruchomienia nadal są w Actions.
+
+Nie włączaj sugerowanego workflow „GitHub Pages Jekyll” ani „Static HTML”. Raport wystawia ten workflow. Adres zwraca 404, dopóki zadanie pages nie przejdzie choć raz.

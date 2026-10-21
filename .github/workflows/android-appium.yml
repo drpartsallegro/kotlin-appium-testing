@@ -113,7 +113,7 @@ jobs:
             adb shell settings put global animator_duration_scale 0
             chmod +x ./gradlew && ./gradlew test --tests tests.SettingsTest --no-daemon
       # Zrzuty są w build/failures na runnerze. Bez tego kroku job je kasuje.
-      - name: Print failure UI dump
+      - name: Print failure notes
         if: failure()
         run: |
           if [ -d build/failures ]; then
@@ -153,3 +153,72 @@ jobs:
           name: gradle-test-report
           if-no-files-found: warn
           path: build/reports/tests/test
+
+  # Raport tego uruchomienia. Nie dodawaj tu workflow Jekyll ani Static HTML.
+  # deploy-pages podmienia całą stronę, więc starsze uruchomienia trzymamy na gałęzi report-history.
+  pages:
+    needs: settings
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Download Allure report
+        id: allure
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: appium-report
+          path: incoming/allure
+
+      - name: Download Gradle report
+        id: gradle
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: gradle-test-report
+          path: incoming/gradle
+
+      - name: Assemble Pages site
+        id: site
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          ALLURE_DIR: incoming/allure
+          GRADLE_DIR: incoming/gradle
+        run: bash .github/scripts/assemble-pages-site.sh
+
+      - name: Upload GitHub Pages artifact
+        if: steps.site.outputs.deploy == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ steps.site.outputs.site_dir }}
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: steps.site.outputs.deploy == 'true'
+        uses: actions/deploy-pages@v5
+
+      - name: Push report-history
+        if: ${{ always() && steps.site.outputs.deploy == 'true' && !cancelled() }}
+        env:
+          SITE_DIR: ${{ steps.site.outputs.site_dir }}
+          RUN_ID: ${{ github.run_id }}
+        run: bash .github/scripts/push-report-history.sh

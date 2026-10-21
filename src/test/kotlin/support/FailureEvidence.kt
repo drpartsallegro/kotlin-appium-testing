@@ -44,7 +44,7 @@ class FailureEvidence : AfterTestExecutionCallback {
             try {
                 val shot = driver.getScreenshotAs(OutputType.FILE)
                 shot.copyTo(image, overwrite = true)
-                "Zrzut: ${image.path}"
+                "Zrzut ekranu zapisany."
             } catch (error: Exception) {
                 "Zrzut ekranu nie powiódł się: ${error.javaClass.simpleName}: ${error.message}"
             }
@@ -53,7 +53,8 @@ class FailureEvidence : AfterTestExecutionCallback {
         val trace = StringWriter()
         failure.printStackTrace(PrintWriter(trace))
         val firstLines = trace.toString().lineSequence().take(15).joinToString("\n").trimEnd()
-        val uiDump = uiDump(driver)
+        // Bez źródła UI. Na Pages idzie zrzut ekranu i komunikat wyjątku, nie page source.
+        val session = sessionNote(driver)
 
         val description = """
             Klasa: $className
@@ -63,7 +64,7 @@ class FailureEvidence : AfterTestExecutionCallback {
 
             $firstLines
 
-            $uiDump
+            $session
             """.trimIndent() + "\n"
         File(dir, "$baseName.txt").writeText(description)
         attachToAllure(image, description)
@@ -82,38 +83,18 @@ class FailureEvidence : AfterTestExecutionCallback {
         }
     }
 
-    private fun uiDump(driver: AndroidDriver?): String {
+    private fun sessionNote(driver: AndroidDriver?): String {
         if (driver == null) {
-            return "Źródło UI: sesja nie powstała."
+            return "Sesja nie została utworzona."
         }
         val pkg = runCatching {
             driver.executeScript("mobile: getCurrentPackage")?.toString()
-        }.getOrNull()
-        val activity = runCatching { driver.currentActivity() }.getOrNull()
-        val source = try {
-            driver.pageSource.orEmpty()
-        } catch (error: Exception) {
-            return """
-                Pakiet: $pkg
-                Aktywność: $activity
-                Źródło UI nie powiodło się: ${error.javaClass.simpleName}: ${error.message}
-            """.trimIndent()
-        }
-        val body = if (source.length > MAX_UI_DUMP_CHARS) {
-            source.take(MAX_UI_DUMP_CHARS) + "\n… (obcięte, ${source.length} znaków)"
-        } else {
-            source
-        }
-        return """
-            Pakiet: $pkg
-            Aktywność: $activity
-            Źródło UI:
-            $body
-        """.trimIndent()
+        }.getOrNull() ?: "(brak)"
+        val activity = runCatching { driver.currentActivity() }.getOrNull() ?: "(brak)"
+        return "Pakiet: $pkg\nAktywność: $activity"
     }
 
     private companion object {
         val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
-        const val MAX_UI_DUMP_CHARS = 5000
     }
 }
